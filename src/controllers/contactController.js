@@ -1,12 +1,12 @@
-import env from '../config/env.js';
-import { asyncHandler, ApiError } from '../utils/asyncHandler.js';
-import { sendContactEmail } from '../utils/mailer.js';
+import env from "../config/env.js";
+import { asyncHandler, ApiError } from "../utils/asyncHandler.js";
+import { sendContactEmail } from "../utils/mailer.js";
 import {
   isValidEmail,
   isValidName,
   isValidPhone,
   isValidMessage,
-} from '../utils/validators.js';
+} from "../utils/validators.js";
 
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_PER_WINDOW = 5;
@@ -20,22 +20,22 @@ function tooManyRequests(key) {
   return timestamps.length > MAX_PER_WINDOW;
 }
 
-// POST /api/contact   { name, email, phone, material, message }
+// POST /api/contact { name, email, phone, material, message }
 export const sendContactMessage = asyncHandler(async (req, res) => {
   const { name, email, phone, material, message } = req.body ?? {};
 
-  if (!isValidName(name)) throw new ApiError(400, 'Please enter your name.');
+  if (!isValidName(name)) throw new ApiError(400, "Please enter your name.");
   if (!isValidEmail(email))
-    throw new ApiError(400, 'Please enter a valid email address.');
+    throw new ApiError(400, "Please enter a valid email address.");
   if (!isValidPhone(phone))
-    throw new ApiError(400, 'Please enter a valid phone number.');
-  if (typeof material !== 'string' || material.trim().length === 0) {
-    throw new ApiError(400, 'Please select the material you need.');
+    throw new ApiError(400, "Please enter a valid phone number.");
+  if (typeof material !== "string" || material.trim().length === 0) {
+    throw new ApiError(400, "Please select the material you need.");
   }
   if (!isValidMessage(message)) {
     throw new ApiError(
       400,
-      'Please add a few more details (min. 10 characters).',
+      "Please add a few more details (min. 10 characters).",
     );
   }
 
@@ -43,11 +43,11 @@ export const sendContactMessage = asyncHandler(async (req, res) => {
   if (tooManyRequests(limiterKey)) {
     throw new ApiError(
       429,
-      'Too many messages sent. Please try again in a little while.',
+      "Too many messages sent. Please try again in a little while.",
     );
   }
 
-  await sendContactEmail({
+  const sent = await sendContactEmail({
     to: env.contactInboxEmail,
     name: name.trim(),
     email: email.trim(),
@@ -56,9 +56,14 @@ export const sendContactMessage = asyncHandler(async (req, res) => {
     message: message.trim(),
   });
 
-  res
-    .status(200)
-    .json({
-      message: "Your message has been sent. We'll get back to you soon.",
-    });
+  if (!sent) {
+    throw new ApiError(
+      503,
+      "The contact service is temporarily unavailable. Please try again later or contact us by phone.",
+    );
+  }
+
+  res.status(200).json({
+    message: "Your message has been sent. We'll get back to you soon.",
+  });
 });
