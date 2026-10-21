@@ -1,13 +1,21 @@
 import "dotenv/config";
 
+const nodeEnv = process.env.NODE_ENV || "development";
+const jwtSecret = process.env.JWT_SECRET || "";
+
+if (nodeEnv === "production" && (!jwtSecret || jwtSecret === "dev-secret-change-me")) {
+  throw new Error("JWT_SECRET must be set to a strong, unique value in production.");
+}
+
 export const env = {
   port: Number(process.env.PORT) || 5000,
-  nodeEnv: process.env.NODE_ENV || "development",
+  nodeEnv,
   clientUrl: process.env.CLIENT_URL || "http://localhost:3000",
-  jwtSecret: process.env.JWT_SECRET || "dev-secret-change-me",
+  jwtSecret: jwtSecret || "dev-secret-change-me",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "7d",
   otpTtlMinutes: Number(process.env.OTP_TTL_MINUTES) || 5,
-  otpDebugEcho: (process.env.OTP_DEBUG_ECHO ?? "true") === "true",
+  // Never permit OTPs to be returned by API responses in production.
+  otpDebugEcho: nodeEnv !== "production" && (process.env.OTP_DEBUG_ECHO ?? "false") === "true",
   smtp: {
     host: process.env.SMTP_HOST || "",
     port: Number(process.env.SMTP_PORT) || 587,
@@ -16,7 +24,11 @@ export const env = {
     pass: process.env.SMTP_PASS || "",
     from: process.env.SMTP_FROM || "Sand and Gravel Concrete Supply <no-reply@example.com>",
   },
-  contactInboxEmail: process.env.CONTACT_INBOX_EMAIL || "meeralbloshi46@gmail.com",
+  contactInboxEmail: process.env.CONTACT_INBOX_EMAIL || "",
 };
+
+if (nodeEnv === "production" && !env.contactInboxEmail) {
+  throw new Error("CONTACT_INBOX_EMAIL must be configured in production.");
+}
 
 export default env;
