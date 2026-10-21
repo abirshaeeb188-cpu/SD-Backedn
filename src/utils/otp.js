@@ -1,35 +1,38 @@
-import { query } from '../config/db.js';
-import env from '../config/env.js';
-import { sendOtpEmail } from './mailer.js';
+import { randomInt } from "node:crypto";
+import { query } from "../config/db.js";
+import env from "../config/env.js";
+import { sendOtpEmail } from "./mailer.js";
 
 export function generateOtp() {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(randomInt(100000, 1000000));
 }
 
 export async function issueOtp(email, purpose) {
   const code = generateOtp();
+  const normalizedEmail = email.trim().toLowerCase();
   const expiresAt = new Date(Date.now() + env.otpTtlMinutes * 60 * 1000);
 
   await query(
     `INSERT INTO otp_codes (email, code, purpose, expires_at)
      VALUES ($1, $2, $3, $4)`,
-    [email.trim().toLowerCase(), code, purpose, expiresAt],
+    [normalizedEmail, code, purpose, expiresAt],
   );
 
   let emailed = false;
   try {
-    emailed = await sendOtpEmail(email, code, purpose);
+    emailed = await sendOtpEmail(normalizedEmail, code, purpose);
   } catch (err) {
-    console.error(`[OTP] Failed to send email to ${email}:`, err.message);
+    // Never log the OTP itself. Email addresses and OTPs are sensitive auth data.
+    console.error("[OTP] Email delivery failed:", err.message);
   }
 
-  if (emailed) {
-    console.log(`[OTP] ${purpose} code emailed to ${email}`);
-  } else {
-    // SMTP not configured (or failed) — this is the only place the code shows up.
-    console.log(
-      `[OTP] ${purpose} code for ${email}: ${code} (expires in ${env.otpTtlMinutes}m)`,
-    );
+  if (!emailed && env.nodeEnv === "production") {
+    // Do not claim that an OTP was delivered when SMTP is unavailable.
+    throw new Error("OTP email delivery is unavailable.");
+  }
+
+  if (!emailed && env.nodeEnv !== "production") {
+    console.warn("[OTP] Email was not delivered; configure SMTP for local testing.");
   }
 
   return code;
@@ -55,7 +58,7 @@ export async function consumeOtp(email, purpose, code) {
   if (new Date(record.expires_at).getTime() < Date.now()) return false;
   if (record.code !== String(code).trim()) return false;
 
-  await query(`UPDATE otp_codes SET consumed_at = NOW() WHERE id = $1`, [
+  await query("UPDATE otp_codes SET consumed_at = NOW() WHERE id = $1", [
     record.id,
   ]);
   return true;
