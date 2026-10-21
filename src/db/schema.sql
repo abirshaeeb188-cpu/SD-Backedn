@@ -19,12 +19,15 @@ CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);
 CREATE TABLE IF NOT EXISTS otp_codes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email VARCHAR(255) NOT NULL,
-  code VARCHAR(6) NOT NULL,
+  code TEXT NOT NULL,
   purpose VARCHAR(20) NOT NULL CHECK (purpose IN ('verify', 'reset')),
   expires_at TIMESTAMPTZ NOT NULL,
   consumed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Upgrade existing installations where code was limited to six characters.
+ALTER TABLE otp_codes ALTER COLUMN code TYPE TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_otp_email_purpose ON otp_codes (email, purpose);
 
