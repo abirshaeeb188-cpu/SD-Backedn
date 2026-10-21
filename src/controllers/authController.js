@@ -17,7 +17,9 @@ function toPublicUser(row) {
 }
 
 function withDebugOtp(payload, code) {
-  if (env.otpDebugEcho) return { ...payload, devOtp: code };
+  if (env.nodeEnv !== "production" && env.otpDebugEcho) {
+    return { ...payload, devOtp: code };
+  }
   return payload;
 }
 
@@ -40,7 +42,6 @@ export const signup = asyncHandler(async (req, res) => {
   const passwordHash = await bcrypt.hash(password, 10);
 
   if (existing.rows[0]) {
-    // Unverified signup left over from before — update it and resend a code.
     await query(
       `UPDATE users SET name = $1, phone = $2, password_hash = $3, updated_at = NOW()
        WHERE id = $4`,
@@ -64,7 +65,7 @@ export const signup = asyncHandler(async (req, res) => {
   );
 });
 
-// POST /api/auth/request-otp   { email, purpose: "verify" | "reset" }
+// POST /api/auth/request-otp { email, purpose: "verify" | "reset" }
 export const requestOtp = asyncHandler(async (req, res) => {
   const { email, purpose } = req.body ?? {};
 
@@ -76,9 +77,6 @@ export const requestOtp = asyncHandler(async (req, res) => {
   const normalizedEmail = email.trim().toLowerCase();
   const { rows } = await query(`SELECT id FROM users WHERE email = $1`, [normalizedEmail]);
 
-  // Always respond with a generic success message so we don't leak which
-  // emails are registered — but only actually issue/store a code if the
-  // account exists.
   if (rows[0]) {
     const code = await issueOtp(normalizedEmail, purpose);
     return res.json(withDebugOtp({ message: "If that account exists, a code has been sent." }, code));
@@ -87,7 +85,7 @@ export const requestOtp = asyncHandler(async (req, res) => {
   res.json({ message: "If that account exists, a code has been sent." });
 });
 
-// POST /api/auth/verify-email   { email, code }
+// POST /api/auth/verify-email { email, code }
 export const verifyEmail = asyncHandler(async (req, res) => {
   const { email, code } = req.body ?? {};
 
@@ -112,7 +110,7 @@ export const verifyEmail = asyncHandler(async (req, res) => {
   res.json({ token, user: toPublicUser(user) });
 });
 
-// POST /api/auth/login   { email, password }
+// POST /api/auth/login { email, password }
 export const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body ?? {};
 
@@ -139,7 +137,7 @@ export const login = asyncHandler(async (req, res) => {
   res.json({ token, user: toPublicUser(user) });
 });
 
-// POST /api/auth/reset-password   { email, code, newPassword }
+// POST /api/auth/reset-password { email, code, newPassword }
 export const resetPassword = asyncHandler(async (req, res) => {
   const { email, code, newPassword } = req.body ?? {};
 
