@@ -1,10 +1,17 @@
-import { randomInt } from "node:crypto";
+import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import { query } from "../config/db.js";
 import env from "../config/env.js";
 import { sendOtpEmail } from "./mailer.js";
 
 export function generateOtp() {
   return String(randomInt(100000, 1000000));
+}
+
+function digestOtp(code) {
+  // HMAC prevents practical offline guessing of a six-digit OTP if the DB leaks.
+  return createHmac("sha256", env.jwtSecret)
+    .update(String(code).trim())
+    .digest("hex");
 }
 
 export async function issueOtp(email, purpose) {
@@ -15,19 +22,17 @@ export async function issueOtp(email, purpose) {
   await query(
     `INSERT INTO otp_codes (email, code, purpose, expires_at)
      VALUES ($1, $2, $3, $4)`,
-    [normalizedEmail, code, purpose, expiresAt],
+    [normalizedEmail, digestOtp(code), purpose, expiresAt],
   );
 
   let emailed = false;
   try {
     emailed = await sendOtpEmail(normalizedEmail, code, purpose);
   } catch (err) {
-    // Never log the OTP itself. Email addresses and OTPs are sensitive auth data.
     console.error("[OTP] Email delivery failed:", err.message);
   }
 
   if (!emailed && env.nodeEnv === "production") {
-    // Do not claim that an OTP was delivered when SMTP is unavailable.
     throw new Error("OTP email delivery is unavailable.");
   }
 
@@ -39,8 +44,8 @@ export async function issueOtp(email, purpose) {
 }
 
 /**
- * Verifies a code against the most recent, unconsumed OTP for that
- * email + purpose, and marks it consumed on success.
+ * Verifies the HMAC digest of the most recent, unconsumed OTP for an email
+ * and purpose, then marks it consumed on success.
  */
 export async function consumeOtp(email, purpose, code) {
   const normalizedEmail = email.trim().toLowerCase();
@@ -56,7 +61,12 @@ export async function consumeOtp(email, purpose, code) {
   const record = rows[0];
   if (!record) return false;
   if (new Date(record.expires_at).getTime() < Date.now()) return false;
-  if (record.code !== String(code).trim()) return false;
+
+  const expected = Buffer.from(record.code, "hex");
+  const actual = Buffer.from(digestOtp(code), "hex");
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+    return false;
+  }
 
   await query("UPDATE otp_codes SET consumed_at = NOW() WHERE id = $1", [
     record.id,
